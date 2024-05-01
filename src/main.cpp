@@ -2,6 +2,7 @@
 #include <TimeLib.h>
 #include <DCF77.h>
 #include <controller/PWMController.h>
+#include <avdweb_Switch.h>
 
 #define DCF_PIN 21
 #define DCF_UPDATE_INTERVAL 3600000
@@ -9,14 +10,19 @@
 #define VOLTMETER_PIN 3
 #define VOLTMETER_STEP_PER_SECOND 255
 
+#define BUTTON_PIN 20
+
 // put function declarations here:
 void startup();
 void displayTime();
 void receiveTime();
+void waitForTime();
 void enterCalibration();
 void calibration();
 void exitCalibration();
 int calculateTarget(int hour, int minute, int second);
+
+void buttonLongPressedCallback(void *ref);
 
 void writeTimetoSerial(uint8_t hours, uint8_t minutes, uint8_t seconds);
 
@@ -25,14 +31,18 @@ time_t lastTimeReceived = 0;
 
 PWMController voltmeter = PWMController();
 
+Switch button = Switch(BUTTON_PIN);
+
 enum ClockState
 {
   startupState,
   displayTimeState,
-  receiveTimeState,
+  waitForTimeState,
   calibrationState
 };
 ClockState state = startupState;
+
+int calibrationTargetHour = 12;
 
 void setup() {
   Serial.begin(9600);
@@ -46,29 +56,33 @@ void setup() {
   // put your setup code here, to run once:
   dcfReceiver.Start();
 
-
+  int ref;
+  button.setLongPressCallback(&buttonLongPressedCallback, &ref);
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  button.poll();
+  receiveTime(); // Maybe only update once an hour?
+
   switch (state)
   {
   case startupState:
     startup();
     break;
   case displayTimeState:
-    receiveTime(); // Maybe only update once an hour?
     displayTime();
     break;
-  case receiveTimeState:
+  case waitForTimeState:
+    waitForTime();
+    break;
   case calibrationState:
+    calibration();
     break;
   default:
     break;
   }
 
 }
-
 
 void startup() {
   voltmeter.setSpeed(64);
@@ -80,13 +94,23 @@ void startup() {
 
   while(!voltmeter.moveToTarget());
 
-  state = displayTimeState;
+  voltmeter.setSpeed(VOLTMETER_STEP_PER_SECOND);
+
+  if (lastTimeReceived > 0) {
+    state = displayTimeState;
+    Serial.println(F("Received time already"));
+  } else {
+    state = waitForTimeState;
+    Serial.println(F("No time received yet"));
+  }
+
   Serial.println(F("Startup finished"));
 
 }
 
 void displayTime() {
-  voltmeter.setTarget(calculateTarget(hour(), minute(), second()));
+  byte target = calculateTarget(hour(), minute(), second());
+  voltmeter.setTarget(target);
   voltmeter.moveToTarget();
 }
 
@@ -98,6 +122,59 @@ void receiveTime() {
     setTime(dcfTime);
     writeTimetoSerial(hour(), minute(), second());
     lastTimeReceived = dcfTime;
+  }
+}
+
+void waitForTime() {
+  voltmeter.setSpeed(64);
+  
+  if (voltmeter.moveToTarget()) {
+    voltmeter.setTarget(~voltmeter.getTarget());
+  }
+
+  if (lastTimeReceived > 0) {
+    voltmeter.setSpeed(VOLTMETER_STEP_PER_SECOND);
+    state = displayTimeState;
+  }
+}
+
+void enterCalibration() {
+  state = calibrationState;
+  calibrationTargetHour = 12;
+  voltmeter.setTarget(255);
+  Serial.println(F("Entering calibration state"));
+}
+
+void calibration() {
+  voltmeter.moveToTarget();
+  if (button.pushed()) {
+    calibrationTargetHour = (calibrationTargetHour + 1) % 13;
+    byte target = calculateTarget(12 + calibrationTargetHour, 0, 0);
+    Serial.print(F("Hour "));
+    Serial.print(calibrationTargetHour);
+    Serial.print(F(" ("));
+    Serial.print(target);
+    Serial.println(")");
+    voltmeter.setTarget(target);
+  }
+}
+
+void exitCalibration() {
+    if (lastTimeReceived > 0) {
+    state = displayTimeState;
+  } else {
+    voltmeter.setTarget(0);
+    state = waitForTimeState;
+  }
+  Serial.println(F("Exiting calibration state"));
+}
+
+void buttonLongPressedCallback(void* ref) {
+  Serial.println("Button Pressed");
+  if (state != calibrationState) {
+    enterCalibration();
+  } else {
+    exitCalibration();
   }
 }
 
