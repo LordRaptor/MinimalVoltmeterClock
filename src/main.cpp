@@ -50,6 +50,20 @@ void setup() {
   voltmeter.setSpeed(VOLTMETER_STEP_PER_SECOND);
   voltmeter.setTarget(0);
 
+  // TCB1.CTRLA &= TCB_ENABLE_bm;
+  // // Set waveform generation mode to single slope PWM
+  // TCB1.CTRLB = TCB_CNTMODE_PWM8_gc | TCB_CCMPEN_bm;
+
+  // // Set period (TOP) value to define frequency
+  // // For example, 0x00FF gives ~62.5 kHz at 16 MHz clock
+  // TCB1.CCMP = 0x00FF;
+
+  // // Set duty cycle (0-255)
+  // TCB1.CNT = 0;
+  
+  // // Use CLK_PER (same as CPU clock, typically 16 MHz)
+  // TCB1.CTRLA = TCB_CLKSEL_CLKDIV1_gc | TCB_ENABLE_bm;
+
   pinMode(DCF_PIN, INPUT);
   pinMode(LED_BUILTIN, OUTPUT);
 
